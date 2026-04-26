@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>B站直播切片系统</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<link href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css" rel="stylesheet">
+<style>
+body{background:#0f0f1a;color:#e0e0e0;font-family:'Segoe UI',system-ui,sans-serif}
+.card{background:#1a1a2e;border:1px solid #2a2a4a;border-radius:12px;padding:1.25rem}
+.btn-pri{background:#6c5ce7;color:white;border:none;border-radius:8px;padding:0.45rem 1rem;cursor:pointer}
+.btn-pri:hover{background:#7c6cf7}
+.btn-dgr{background:#e74c3c;color:white;border:none;border-radius:8px;padding:0.45rem 1rem;cursor:pointer}
+.btn-grn{background:#00b894;color:white;border:none;border-radius:8px;padding:0.45rem 1rem;cursor:pointer}
+.btn-grn:hover{background:#00d2a0}
+input{background:#2a2a4a;border:1px solid #3a3a5a;color:white;border-radius:8px;padding:0.5rem;width:100%;outline:none}
+input:focus{border-color:#6c5ce7}
+.req-label{color:#ff6b6b;font-size:0.65rem;font-weight:bold;margin-left:2px;vertical-align:super}
+.log-i{color:#b0b0c0}.log-s{color:#00b894}.log-w{color:#fdcb6e}.log-e{color:#e74c3c}
+.badge-on{background:#00b894;color:white;border-radius:999px;padding:2px 10px;font-size:0.7rem;font-weight:bold}
+.badge-off{background:#636e72;color:white;border-radius:999px;padding:2px 10px;font-size:0.7rem}
+.err-banner{background:#4a1a1a;border:1px solid #e74c3c;border-radius:8px;padding:0.6rem 1rem;margin-bottom:0.75rem;font-size:0.8rem}
+.err-banner .err-title{color:#e74c3c;font-weight:bold;font-size:0.85rem;margin-bottom:0.25rem}
+.stat-card{text-align:center;padding:0.4rem 0.6rem;border-radius:8px;border:1px solid #2a2a4a;min-width:0}
+.stat-card .stat-val{font-size:1.1rem;font-weight:bold;line-height:1.3}
+.stat-card .stat-lbl{font-size:0.6rem;color:#888;margin-top:0.1rem}
+.btn-out{background:transparent;color:#6c5ce7;border:1px solid #6c5ce7;border-radius:6px;padding:0.25rem 0.5rem;cursor:pointer;font-size:0.7rem}
+.btn-out:hover{background:#6c5ce7;color:white}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.4}}
+.pulse{animation:pulse 1.5s infinite}
+.modal-bg{background:rgba(0,0,0,0.7)}
+::-webkit-scrollbar{width:6px}
+::-webkit-scrollbar-track{background:#1a1a2e}
+::-webkit-scrollbar-thumb{background:#3a3a5a;border-radius:3px}
+.tw{background:#2a2a4a;border:1px solid #3a3a5a;color:white;border-radius:8px;padding:0.35rem 0.5rem;font-size:0.75rem;width:100%;outline:none}
+.tw:focus{border-color:#6c5ce7}
+</style>
+</head>
+<body class="min-h-screen p-4 md:p-8">
+<div class="max-w-6xl mx-auto">
+
+<!-- 顶栏 -->
+<div class="flex flex-wrap items-center justify-between mb-6 gap-2">
+<div>
+<h1 class="text-2xl font-bold text-white">B站直播切片系统</h1>
+<p class="text-gray-400 text-xs mt-1">弹幕驱动 · 多直播间 · 自动剪辑</p>
+</div>
+<div class="flex items-center gap-3">
+<button onclick="showManual()" class="btn-pri text-sm"><i class="fas fa-book mr-1"></i>使用手册</button>
+<span id="statusBadge" class="badge-off">未启动</span>
+<button id="btnStart" class="btn-grn text-sm" onclick="startMon()"><i class="fas fa-play mr-1"></i>启动</button>
+<button id="btnStop" class="btn-dgr text-sm hidden" onclick="stopMon()"><i class="fas fa-stop mr-1"></i>停止</button>
+</div>
+</div>
+
+<!-- 配置错误提示 -->
+<div id="configErr" class="hidden err-banner">
+<div class="err-title"><i class="fas fa-exclamation-triangle mr-1"></i>配置不完整：</div>
+<ul id="errList" class="list-disc list-inside space-y-0.5"></ul>
+</div>
+
+<!-- 总览统计面板 -->
+<div class="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-4">
+<div class="card stat-card"><div class="stat-val text-white" id="ovRooms">0</div><div class="stat-lbl">直播间</div></div>
+<div class="card stat-card"><div class="stat-val" id="ovLive">0</div><div class="stat-lbl">直播中</div></div>
+<div class="card stat-card"><div class="stat-val text-green-400" id="ovRecording">0</div><div class="stat-lbl">录制中</div></div>
+<div class="card stat-card"><div class="stat-val text-yellow-400" id="ovClips">0</div><div class="stat-lbl">切片数</div></div>
+</div>
+
+<!-- Tab: 直播间 | 文件浏览 -->
+<div class="flex gap-1 mb-3">
+<button id="tabRooms" class="btn-pri text-sm" onclick="switchTab('rooms')">直播间</button>
+<button id="tabFiles" class="btn-out text-sm" onclick="switchTab('files')">文件浏览</button>
+</div>
+
+<!-- 直播间面板 -->
+<div id="panelRooms">
+<div class="card mb-4">
+<div class="flex items-center justify-between mb-3">
+<h2 class="font-semibold"><i class="fas fa-tv mr-2 text-purple-400"></i>直播间 <span class="req-label">*必填</span></h2>
+<button class="btn-pri text-xs" onclick="showAdd()"><i class="fas fa-plus mr-1"></i>添加</button>
+</div>
+<div id="roomGrid" class="space-y-2"></div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-4">
+<div class="card">
+<h2 class="font-semibold mb-3"><i class="fas fa-sliders-h mr-2 text-green-400"></i>操作</h2>
+<div class="space-y-3">
+<div><label class="text-xs text-gray-400 block mb-1">回放视频BV号</label>
+<div class="flex gap-2"><input id="bvidInp" placeholder="如 BV1xx411c7xx" class="text-sm"><button class="btn-pri text-sm whitespace-nowrap" onclick="doReplay()"><i class="fas fa-cut mr-1"></i>切片</button></div></div>
+<button class="btn-pri text-sm w-full" onclick="refresh()"><i class="fas fa-sync mr-1"></i>刷新</button>
+</div>
+</div>
+<div class="card">
+<h2 class="font-semibold mb-3"><i class="fas fa-cog mr-2 text-yellow-400"></i>全局配置</h2>
+<div class="grid grid-cols-2 gap-3 text-sm mb-2">
+<div><label class="text-xs text-gray-400">检查间隔(秒) <span class="req-label">*必填</span></label><input id="cfgInt" type="number" value="30" class="text-xs mt-1"></div>
+<div><label class="text-xs text-gray-400">弹幕阈值(条/秒) <span class="req-label">*必填</span></label><input id="cfgDen" type="number" value="10" class="text-xs mt-1"></div>
+</div>
+<div class="mb-2">
+<label class="text-xs text-gray-400 block mb-1">存储根目录</label>
+<div class="flex gap-2"><input id="cfgRoot" placeholder="留空=默认 storage/" class="text-xs"><button class="btn-pri text-xs whitespace-nowrap" onclick="saveRoot()">修改</button></div>
+<p class="text-xs text-gray-500 mt-0.5">目录结构: <code>根目录/主播名/直播开始时间/record/ + clips/</code></p>
+</div>
+<button class="btn-pri text-xs" onclick="saveCfg()"><i class="fas fa-save mr-1"></i>保存全局配置</button>
+</div>
+</div>
+
+<div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
+<div class="card">
+<h2 class="font-semibold mb-3"><i class="fas fa-terminal mr-2 text-cyan-400"></i>运行日志</h2>
+<div id="logBox" class="h-72 overflow-y-auto font-mono text-xs space-y-1"></div>
+</div>
+<div class="card">
+<h2 class="font-semibold mb-3"><i class="fas fa-video mr-2 text-pink-400"></i>最近切片</h2>
+<div id="clipBox" class="h-72 overflow-y-auto space-y-2"></div>
+</div>
+</div>
+</div>
+
+<!-- 文件浏览面板 -->
+<div id="panelFiles" class="hidden">
+<div class="card mb-4">
+<h2 class="font-semibold mb-3"><i class="fas fa-folder-tree mr-2 text-green-400"></i>存储目录结构</h2>
+<p class="text-xs text-gray-500 mb-3" id="storageRootDisplay"></p>
+<div id="fileTree" class="space-y-3"></div>
+</div>
+</div>
+
+</div>
+
+<!-- 添加弹窗 -->
+<div id="addModal" class="hidden fixed inset-0 modal-bg z-50 flex items-center justify-center" onclick="if(event.target===this)hideAdd()">
+<div class="card w-80" onclick="event.stopPropagation()">
+<h3 class="font-semibold mb-3">添加直播间</h3>
+<div class="space-y-3">
+<div><label class="text-xs text-gray-400">房间号 <span class="req-label">*必填</span></label><input id="newRid" placeholder="如 123456"></div>
+<div><label class="text-xs text-gray-400">主播名 <span class="req-label">*必填</span></label><input id="newName" placeholder="如 张三"></div>
+<div id="addRoomErr" class="text-xs text-red-400 hidden"></div>
+</div>
+<div class="flex gap-2 mt-4"><button class="btn-pri text-sm flex-1" onclick="addRoom()">确认</button><button class="btn-dgr text-sm flex-1" onclick="hideAdd()">取消</button></div>
+</div>
+</div>
+
+<!-- 房间配置弹窗 -->
+<div id="roomCfgModal" class="hidden fixed inset-0 modal-bg z-50 flex items-center justify-center" onclick="if(event.target===this)hideRoomCfg()">
+<div class="card w-96" onclick="event.stopPropagation()">
+<div class="flex items-center justify-between mb-3">
+<h3 class="font-semibold"><i class="fas fa-sliders-h mr-2 text-purple-400"></i>配置 - <span id="rcfgName"></span></h3>
+<button onclick="hideRoomCfg()" class="text-gray-400 hover:text-white"><i class="fas fa-times"></i></button>
+</div>
+<div class="space-y-3">
+<div>
+<label class="text-xs text-gray-400 block mb-1">弹幕关键词（每行一个）</label>
+<textarea id="rcfgKeywords" class="tw h-32" placeholder="如:&#10;666&#10;牛逼"></textarea>
+</div>
+<div id="rcfgErr" class="text-xs text-red-400 hidden"></div>
+</div>
+<div class="flex gap-2 mt-4"><button class="btn-pri text-sm flex-1" onclick="saveRoomCfg()">保存</button><button class="btn-dgr text-sm flex-1" onclick="hideRoomCfg()">取消</button></div>
+</div>
+</div>
+
+<!-- 使用手册弹窗 -->
+<div id="manualModal" class="hidden fixed inset-0 modal-bg z-50 flex items-center justify-center" onclick="if(event.target===this)hideManual()">
+<div class="card w-full max-w-2xl mx-4 max-h-[80vh] overflow-y-auto" onclick="event.stopPropagation()">
+<div class="flex items-center justify-between mb-4">
+<h3 class="text-lg font-bold text-white"><i class="fas fa-book mr-2 text-purple-400"></i>使用手册</h3>
+<button onclick="hideManual()" class="text-gray-400 hover:text-white text-xl"><i class="fas fa-times"></i></button>
+</div>
+<div class="space-y-3 text-sm">
+<div class="bg-gray-800/60 rounded-lg p-3"><h4 class="font-bold text-white mb-1 text-base">系统简介</h4><p class="text-gray-400 text-xs">全自动B站直播切片系统，支持多直播间监控、弹幕/礼物/SC/进场多维度高能检测、自动录制与切片。</p></div>
+<div class="bg-gray-800/60 rounded-lg p-3"><h4 class="font-bold text-white mb-1 text-base"><i class="fas fa-bolt text-yellow-400 mr-1"></i>高能检测机制</h4><p class="text-gray-400 text-xs">系统从4个维度综合评分判断精彩片段：</p><ul class="list-disc list-inside text-gray-400 text-xs space-y-1 mt-2"><li><span class="text-green-400">弹幕爆发</span> — 弹幕突然增多（密度超过阈值）</li><li><span class="text-yellow-400">礼物赠送</span> — 总督、宇宙飞船等（按价值分配权重）</li><li><span class="text-purple-400">SC留言</span> — Super Chat付费留言（按金额分档）</li><li><span class="text-cyan-400">观众涌入</span> — 短时间内进场人数激增</li></ul><p class="text-gray-500 text-xs mt-2">总分超过阈值即判定为高能时刻，自动捕获前后各5秒生成切片。可在配置文件中调整各维度权重和判定阈值。</p></div>
+<div class="bg-gray-800/60 rounded-lg p-3"><h4 class="font-bold text-white mb-1 text-base"><i class="fas fa-arrow-right text-green-400 mr-1"></i>三种使用方式</h4><div class="grid grid-cols-1 md:grid-cols-3 gap-2 text-xs"><div class="bg-gray-900 rounded p-2 border border-purple-700/30"><div class="font-bold text-purple-400 mb-1">自动监控</div><ol class="list-decimal list-inside text-gray-400 space-y-0.5"><li>冷启动：打开页面即可看到谁在直播</li><li>点「启动」开始录制+弹幕抓取</li><li>开播→自动录制+多维度高能检测</li><li>下播→自动生成切片</li></ol></div><div class="bg-gray-900 rounded p-2 border border-green-700/30"><div class="font-bold text-green-400 mb-1">回放切片</div><ol class="list-decimal list-inside text-gray-400 space-y-0.5"><li>复制BV号粘贴</li><li>点击「切片」</li><li>自动下载+分析+剪辑</li></ol></div><div class="bg-gray-900 rounded p-2 border border-yellow-700/30"><div class="font-bold text-yellow-400 mb-1">添加直播间</div><ol class="list-decimal list-inside text-gray-400 space-y-0.5"><li>点击「添加」</li><li>填房间号+主播名</li><li>支持多房间同时监控</li></ol></div></div></div>
+<div class="bg-gray-800/60 rounded-lg p-3"><h4 class="font-bold text-white mb-1 text-base"><i class="fas fa-info-circle text-cyan-400 mr-1"></i>目录结构 & 命名规则</h4><p class="text-gray-400 text-xs"><b>存储路径</b>：<code>storage_root/主播名/开始时间_标题/record/</code> + <code>clips/</code> + <code>logs/</code></p><p class="text-gray-400 text-xs mt-1"><b>录制文件</b>：<code>主播名_YYYYMMDD_HHMMSS.ts</code></p><p class="text-gray-400 text-xs mt-1"><b>切片文件</b>：<code>xxhxxmxxs_xxhxxmxxs.mp4</code>（相对于录制起始点的起止时间）</p></div>
+<div class="bg-gray-800/60 rounded-lg p-3"><h4 class="font-bold text-white mb-1 text-base"><i class="fas fa-cog text-yellow-400 mr-1"></i>配置说明</h4><table class="w-full text-xs"><thead><tr class="text-gray-500 border-b border-gray-700"><th class="text-left py-1 pr-3">参数</th><th>说明</th></tr></thead><tbody class="text-gray-400"><tr><td class="py-1 pr-3">room_id <span class="text-red-400">*</span></td><td>B站数字房间号</td></tr><tr><td class="py-1 pr-3">anchor_name <span class="text-red-400">*</span></td><td>主播名</td></tr><tr><td class="py-1 pr-3">score_threshold</td><td>高能判定阈值（默认15），越低越易触发</td></tr><tr><td class="py-1 pr-3">density_threshold <span class="text-red-400">*</span></td><td>弹幕密度阈值(条/秒)</td></tr><tr><td class="py-1 pr-3">check_interval <span class="text-red-400">*</span></td><td>轮询间隔(秒)</td></tr><tr><td class="py-1 pr-3">storage_root</td><td>存储根目录(可选)</td></tr></tbody></table></div>
+</div>
+</div>
+</div>
+
+<script>
+var A='';
+var curTab='rooms';
+
+function switchTab(tab){
+curTab=tab;
+document.getElementById('panelRooms').classList.toggle('hidden',tab!='rooms');
+document.getElementById('panelFiles').classList.toggle('hidden',tab!='files');
+document.getElementById('tabRooms').className=(tab=='rooms'?'btn-pri':'btn-out')+' text-sm';
+document.getElementById('tabFiles').className=(tab=='files'?'btn-pri':'btn-out')+' text-sm';
+if(tab=='files')loadFiles();
+}
+
+function refresh(){
+fetch(A+'/api/status').then(function(r){return r.json()}).then(function(d){
+document.getElementById('btnStart').classList.toggle('hidden',d.running);
+document.getElementById('btnStop').classList.toggle('hidden',!d.running);
+var b=document.getElementById('statusBadge');
+if(d.running){b.textContent='运行中';b.className='badge-on';}else{b.textContent='未启动';b.className='badge-off';}
+var rooms=d.rooms||[];
+var mon=d.monitor||{};
+var rec=d.recording||{};
+var dmk=d.danmaku||{};
+var liveCount=0, recCount=0, dmCount=0;
+rooms.forEach(function(r){
+  var rid=r.room_id;
+  if(mon[rid]&&mon[rid].is_live) liveCount++;
+  if(rec[rid]) recCount++;
+  if(dmk[rid]&&dmk[rid].connected) dmCount++;
+});
+document.getElementById('ovRooms').textContent=rooms.length;
+var le=document.getElementById('ovLive');
+le.textContent=liveCount+' / '+rooms.length;
+le.className='stat-val'+(liveCount>0?' text-red-400 pulse':' text-gray-400');
+document.getElementById('ovRecording').textContent=recCount+' / '+rooms.length;
+var g=document.getElementById('roomGrid');
+if(!rooms.length){g.innerHTML='<div class="text-gray-500 text-sm"><span class="text-red-400">*</span> 暂无直播间</div>';return;}
+g.innerHTML=rooms.map(function(r){
+var rid=r.room_id;
+var m=mon[rid]||{};
+var isLive=!!m.is_live;
+var isRec=!!rec[rid];
+var dm=dmk[rid];
+var dmConn=dm&&dm.connected;
+var dmStats=dm&&dm.stats||{};
+var lastCheck=m.last_check||'-';
+var sessInfo='';
+if(d.sessions&&d.sessions[rid])sessInfo='<span class="text-xs text-gray-500 ml-2">'+d.sessions[rid].start_str+'</span>';
+var tags='';
+if(isLive) tags+='<span class="bg-red-600 text-white text-xs font-bold px-2 py-0.5 rounded-full pulse"><i class="fas fa-circle fa-2xs mr-1"></i>直播中</span>';
+else tags+='<span class="bg-gray-600 text-gray-300 text-xs px-2 py-0.5 rounded-full"><i class="fas fa-circle fa-2xs mr-1"></i>关播</span>';
+if(isRec) tags+='<span class="bg-red-800 text-red-200 text-xs px-2 py-0.5 rounded-full ml-1"><i class="fas fa-record-vinyl fa-2xs mr-1"></i>录制</span>';
+if(dmConn) tags+='<span class="bg-green-800 text-green-200 text-xs px-2 py-0.5 rounded-full ml-1"><i class="fas fa-comment fa-2xs mr-1"></i>弹幕</span>';
+if(dmStats.total_danmaku>0) tags+='<span class="bg-yellow-800 text-yellow-200 text-xs px-2 py-0.5 rounded-full ml-1">弹幕'+dmStats.total_danmaku+'条</span>';
+if(isRec&&rec[rid]&&rec[rid].duration>0){var dur=Math.floor(rec[rid].duration);tags+='<span class="bg-blue-800 text-blue-200 text-xs px-2 py-0.5 rounded-full ml-1">'+formatDur(dur)+'</span>';}
+var kw=r.hot_keywords||[];
+var kwShow=kw.length>0?'<span class="text-xs text-gray-500">关键词: '+kw.slice(0,5).join(', ')+(kw.length>5?'...':'')+'</span>':'';
+return '<div class="bg-gray-800/60 rounded-lg p-3 text-sm border '+(isLive?'border-red-700/50':'border-gray-700')+'">'
++'<div class="flex items-start justify-between">'
++'<div><div class="font-medium text-base">'+r.anchor_name+' <span class="text-gray-500 text-xs font-normal">#'+rid+'</span>'+sessInfo+'</div>'
++'<div class="text-xs text-gray-500 mt-0.5">检查: '+lastCheck+(dmStats.current_density>0?' | 弹幕: '+dmStats.current_density+'条/秒':'')+'</div></div>'
++'<div class="flex items-center gap-1"><button onclick="showRoomCfg('+rid+')" style="background:#6c5ce7;color:white;border:none;border-radius:6px;padding:0.25rem 0.6rem;cursor:pointer;font-size:0.75rem"><i class="fas fa-sliders-h mr-1"></i>配置关键词</button><button onclick="rmRoom('+rid+')" class="text-gray-500 hover:text-red-400 text-xs ml-1"><i class="fas fa-times-circle"></i></button></div></div>'
++'<div class="flex items-center flex-wrap gap-1 mt-2">'+tags+'</div>'
++'<div class="mt-1">'+kwShow+'</div>'
++'</div>';
+}).join('');
+fetch(A+'/api/clips').then(function(r){return r.json()}).then(function(cs){document.getElementById('ovClips').textContent=cs.length;}).catch(function(){});
+fetch(A+'/api/config').then(function(r){return r.json()}).then(function(c){document.getElementById('cfgInt').value=c.check_interval||30;document.getElementById('cfgDen').value=c.density_threshold||10;document.getElementById('cfgRoot').value=c.storage_root||'';}).catch(function(){});
+}).catch(function(){});
+checkConfig();
+fetch(A+'/api/logs').then(function(r){return r.json()}).then(function(ls){var c=document.getElementById('logBox');c.innerHTML=ls.map(function(l){return '<div class="log-'+l.level+'">['+l.time+'] '+l.msg+'</div>';}).join('');c.scrollTop=c.scrollHeight;}).catch(function(){});
+fetch(A+'/api/clips').then(function(r){return r.json()}).then(function(cs){var c=document.getElementById('clipBox');if(!cs.length){c.innerHTML='<div class="text-gray-500 text-sm">暂无切片</div>';return;}c.innerHTML=cs.slice(0,20).map(function(cl){var s=(cl.size/1024/1024).toFixed(1)+'MB';return '<div class="flex items-center justify-between bg-gray-800 rounded-lg px-3 py-2 text-sm"><div class="flex-1 min-w-0"><div class="truncate">'+cl.name+'</div><div class="text-xs text-gray-500">'+s+' '+cl.time+'</div></div><div class="flex gap-2 ml-2"><a href="'+A+'/api/file/'+encodeURIComponent(cl.name)+'" class="text-blue-400"><i class="fas fa-download"></i></a><button onclick="delFile(\''+encodeURIComponent(cl.name)+'\')" class="text-red-400"><i class="fas fa-trash"></i></button></div></div>';}).join('');}).catch(function(){});
+}
+
+function loadFiles(){
+fetch(A+'/api/files').then(function(r){return r.json()}).then(function(data){
+var c=document.getElementById('fileTree');
+if(!data.length){c.innerHTML='<div class="text-gray-500 text-sm">暂无文件</div>';return;}
+c.innerHTML=data.map(function(anchor){
+var sessionsHtml=anchor.sessions.map(function(s){
+var clipsHtml=s.clips.map(function(cl){
+var sz=(cl.size/1024/1024).toFixed(1)+'MB';
+return '<div class="flex items-center justify-between bg-gray-800 rounded px-2 py-1 text-xs ml-4 mt-0.5"><span title="'+cl.name+'">['+cl.time_range+']</span><span class="text-gray-500">'+sz+' '+cl.mtime+'</span><div class="flex gap-1"><a href="'+A+'/api/file/'+encodeURIComponent(anchor.path+'/'+s.session+'/clips/'+cl.name)+'" class="text-blue-400 text-xs"><i class="fas fa-download"></i></a><button onclick="delFile(\''+encodeURIComponent(anchor.path+'/'+s.session+'/clips/'+cl.name)+'\')" class="text-red-400 text-xs"><i class="fas fa-trash"></i></button></div></div>';
+}).join('')||'<div class="text-gray-600 text-xs ml-4">无切片</div>';
+var recHtml=s.records.map(function(r){
+return '<div class="flex items-center text-xs ml-4 mt-0.5"><span class="text-gray-400"><i class="fas fa-video mr-1"></i>'+r+'</span><a href="'+A+'/api/file/'+encodeURIComponent(anchor.path+'/'+s.session+'/record/'+r)+'" class="text-blue-400 ml-2 text-xs"><i class="fas fa-download"></i></a></div>';
+}).join('')||'';
+return '<div class="bg-gray-800/40 rounded p-2 mt-1">'
++'<div class="text-xs font-medium text-purple-300"><i class="fas fa-calendar mr-1"></i>'+s.session+'</div>'
++recHtml
++'<div class="text-xs text-gray-400 mt-1 mb-0.5 ml-1">切片 ('+s.clip_count+'):</div>'
++clipsHtml
++'</div>';
+}).join('');
+return '<div class="bg-gray-800/60 rounded-lg p-3 border border-gray-700">'
++'<div class="font-medium text-base text-white flex items-center"><i class="fas fa-user mr-2 text-purple-400"></i>'+anchor.anchor+' <span class="text-xs text-gray-500 ml-2">('+anchor.total_sessions+'场直播)</span></div>'
++sessionsHtml
++'</div>';
+}).join('');
+}).catch(function(){});
+}
+
+function checkConfig(){fetch(A+'/api/validate').then(function(r){return r.json()}).then(function(d){var e=document.getElementById('configErr');e.classList.toggle('hidden',d.ok);if(!d.ok)document.getElementById('errList').innerHTML=d.errors.map(function(e){return '<li>'+e+'</li>';}).join('');}).catch(function(){});}
+function startMon(){fetch(A+'/api/start',{method:'POST'}).then(function(r){return r.json()}).then(function(d){if(!d.ok){var m=d.msg;if(d.errors)m+=': '+d.errors.join('; ');alert(m);}refresh();});}
+function stopMon(){fetch(A+'/api/stop',{method:'POST'}).then(function(){refresh();});}
+function doReplay(){var v=document.getElementById('bvidInp').value.trim();if(!v){alert('请输入BV号');return;}fetch(A+'/api/replay',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({bvid:v})}).then(function(){document.getElementById('bvidInp').value='';refresh();});}
+function showAdd(){document.getElementById('addModal').classList.remove('hidden');document.getElementById('addRoomErr').classList.add('hidden');document.getElementById('newRid').focus();}
+function hideAdd(){document.getElementById('addModal').classList.add('hidden');}
+function addRoom(){var rid=document.getElementById('newRid').value.trim();var nm=document.getElementById('newName').value.trim();var e=document.getElementById('addRoomErr');if(!rid||!nm){e.textContent='* 房间号和主播名不能为空';e.classList.remove('hidden');return;}e.classList.add('hidden');fetch(A+'/api/rooms',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({room_id:parseInt(rid),anchor_name:nm})}).then(function(r){return r.json()}).then(function(d){if(!d.ok){e.textContent=d.msg;e.classList.remove('hidden');return;}hideAdd();document.getElementById('newRid').value='';document.getElementById('newName').value='';refresh();});}
+function rmRoom(rid){if(confirm('移除该直播间?'))fetch(A+'/api/rooms/'+rid,{method:'DELETE'}).then(function(){refresh();});}
+function saveCfg(){fetch(A+'/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({check_interval:parseInt(document.getElementById('cfgInt').value)||30,density_threshold:parseInt(document.getElementById('cfgDen').value)||10})}).then(function(){refresh();alert('全局配置已保存');});}
+function saveRoot(){var v=document.getElementById('cfgRoot').value.trim();fetch(A+'/api/config',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({storage_root:v})}).then(function(r){return r.json()}).then(function(d){if(d.ok){alert('存储根目录已更新，重启监控后生效');refresh();}});}
+function delFile(p){if(confirm('删除该文件?'))fetch(A+'/api/file/delete/'+p,{method:'POST'}).then(function(){if(curTab=='files')loadFiles();else refresh();});}
+function showManual(){document.getElementById('manualModal').classList.remove('hidden');}
+function hideManual(){document.getElementById('manualModal').classList.add('hidden');}
+var curCfgRoomId=null;
+function showRoomCfg(rid){
+curCfgRoomId=rid;
+fetch(A+'/api/rooms').then(function(r){return r.json()}).then(function(rooms){for(var i=0;i<rooms.length;i++){if(rooms[i].room_id==rid){var r=rooms[i];document.getElementById('rcfgName').textContent=r.anchor_name+' (#'+rid+')';document.getElementById('rcfgKeywords').value=(r.hot_keywords||[]).join('\n');document.getElementById('rcfgErr').classList.add('hidden');document.getElementById('roomCfgModal').classList.remove('hidden');return;}}alert('未找到');});
+}
+function hideRoomCfg(){document.getElementById('roomCfgModal').classList.add('hidden');curCfgRoomId=null;}
+function saveRoomCfg(){var t=document.getElementById('rcfgKeywords').value.trim();var kw=t?t.split('\n').map(function(s){return s.trim();}).filter(function(s){return s!=='';}):[];fetch(A+'/api/rooms/'+curCfgRoomId,{method:'PATCH',headers:{'Content-Type':'application/json'},body:JSON.stringify({hot_keywords:kw})}).then(function(r){return r.json()}).then(function(d){if(d.ok){hideRoomCfg();refresh();alert('关键词已保存');}else{document.getElementById('rcfgErr').textContent=d.msg;document.getElementById('rcfgErr').classList.remove('hidden');}});}
+
+function formatDur(s){var m=Math.floor(s/60);var sec=s%60;return m+'分'+sec+'秒';}
+
+refresh();
+setInterval(refresh,3000);
+</script>
+</body>
+</html>

@@ -1,0 +1,33 @@
+automation:
+  auto_clip: true
+  auto_download: true
+  check_interval: 30
+  cleanup_old_files: true
+  keep_days: 7
+clipping:
+  buffer_after: 5
+  buffer_before: 5
+  max_clip_duration: 30
+  min_clip_duration: 10
+  target_duration: 60
+danmaku_analysis:
+  density_threshold: 10
+  min_peak_interval: 30
+  peak_window: 5
+output:
+  audio_codec: aac
+  codec: libx264
+  effects:
+    add_background_music: false
+    add_bilibili_style: true
+    add_subtitles: true
+    add_transitions: true
+  format: mp4
+  fps: 30
+  resolution: 1080p
+paths:
+  logs_dir: logs
+rooms:
+
+storage_root: ''
+web_port: 5000
